@@ -17,10 +17,70 @@ import (
 	"github.com/decred/dcrrpcclient"
 )
 
+type BlockSummarySaver interface {
+	StoreBlockSummary(blockSummary *apitypes.BlockDataBasic) error
+}
+
+type APICache struct {
+	*sync.RWMutex
+	isEnabled      bool
+	maxSize        uint32
+	blockSummaries map[uint32]*apitypes.BlockDataBasic
+	minHeight      int32
+}
+
+var _ BlockSummarySaver = (*APICache)(nil)
+
+func (apic *APICache) StoreBlockSummary(blockSummary *apitypes.BlockDataBasic) error {
+	apic.Lock()
+	defer apic.Unlock()
+	if !apic.isEnabled {
+		log.Trace("API cache is disabled")
+		return nil
+	}
+
+	height := blockSummary.Height
+	if apic.blockSummaries[height] != nil {
+		log.Debugf("Updating cached block summary for height %d from block %s to block %s",
+			height, apic.blockSummaries[height].Hash, blockSummary.Hash)
+		apic.blockSummaries[height] = blockSummary
+		return nil
+	}
+
+	currentCacheSize := len(apic.blockSummaries)
+	if currentCacheSize > int(apic.maxSize) && apic.minHeight > -1 {
+		delete(apic.blockSummaries, uint32(apic.minHeight))
+		// new min height?  damn, need a priority queue
+	}
+
+	return nil
+}
+
+func (apic *APICache) Enable() {
+	apic.Lock()
+	defer apic.Unlock()
+	apic.isEnabled = true
+}
+
+func (apic *APICache) Disable() {
+	apic.Lock()
+	defer apic.Unlock()
+	apic.isEnabled = false
+}
+
+func NewAPICache(maxSize uint32) *APICache {
+	return &APICache{
+		maxSize:        maxSize,
+		blockSummaries: make(map[uint32]*apitypes.BlockDataBasic),
+		minHeight:      -1,
+	}
+}
+
 // wiredDB is intended to satisfy APIDataSource interface. The block header is
 // not stored in the DB, so the RPC client is used to get it on demand.
 type wiredDB struct {
 	*DBDataSaver
+	*APICache
 	MPC    *mempool.MempoolDataCache
 	client *dcrrpcclient.Client
 	params *chaincfg.Params
@@ -28,8 +88,10 @@ type wiredDB struct {
 }
 
 func newWiredDB(DB *DB, statusC chan uint32, cl *dcrrpcclient.Client, p *chaincfg.Params) (wiredDB, func() error) {
+	apic := NewAPICache(50000)
 	wDB := wiredDB{
-		DBDataSaver: &DBDataSaver{DB, statusC},
+		DBDataSaver: &DBDataSaver{DB, statusC, apic},
+		APICache:    apic,
 		MPC:         new(mempool.MempoolDataCache),
 		client:      cl,
 		params:      p,

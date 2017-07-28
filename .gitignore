@@ -3,6 +3,7 @@
 *.log
 *.bak
 debug
+debug.test
 *.cert
 *.key
 dcrdata

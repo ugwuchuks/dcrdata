@@ -158,6 +158,9 @@ func (p *ChainMonitor) switchToSideChain() (int32, *chainhash.Hash, error) {
 			// Store block summary in a new cached block
 			if err := p.db.APICache.StoreBlockSummary(blockDataSummary); err != nil {
 				log.Warn("Unable to store block summary in cache:", err)
+			} else {
+				log.Debugf("Stored block in cache: %d / %v. Utilization: %v%%",
+					blockDataSummary.Height, blockDataSummary.Hash, p.db.APICache.Utilization())
 			}
 		}
 		// DB

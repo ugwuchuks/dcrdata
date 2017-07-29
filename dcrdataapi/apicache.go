@@ -20,7 +20,7 @@ type CachedBlock struct {
 type blockCache map[chainhash.Hash]*CachedBlock
 
 type APICache struct {
-	*sync.RWMutex
+	sync.RWMutex
 	isEnabled       bool
 	capacity        uint32
 	blockCache                       // map[chainhash.Hash]*CachedBlock
@@ -29,6 +29,9 @@ type APICache struct {
 }
 
 //var _ BlockSummarySaver = (*APICache)(nil)
+
+func (apic APICache) Capacity() uint32   { return apic.capacity }
+func (apic APICache) Utilization() int64 { return int64(len(apic.blockCache)) }
 
 func (apic *APICache) StoreBlockSummary(blockSummary *BlockDataBasic) error {
 	apic.Lock()

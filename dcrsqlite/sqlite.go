@@ -185,6 +185,10 @@ func (db *DBDataSaver) Store(data *blockdata.BlockData) error {
 	if db.cache != nil {
 		if err = db.cache.StoreBlockSummary(&summary); err != nil {
 			log.Errorf("Unable to save block summary to cache: %v", err)
+		} else {
+			utilization := db.cache.(*apitypes.APICache).Utilization()
+			log.Debugf("Stored block in cache: %d / %v. Utilization: %v%%",
+				summary.Height, summary.Hash, utilization)
 		}
 	}
 

@@ -92,9 +92,14 @@ func (db *wiredDB) resyncDB(quit chan struct{}) error {
 			},
 		}
 
-		if db.APICache != nil {
+		freeCache := int64(db.APICache.Capacity()) - db.APICache.Utilization()
+		remainingBlocks := i - height
+		if db.APICache != nil && remainingBlocks <= freeCache {
 			if err = db.APICache.StoreBlockSummary(&blockSummary); err != nil {
 				log.Warn("Unable to store block summary in cache:", err)
+			} else if (i-1)%rescanLogBlockChunk == 0 || i == startHeight {
+				log.Debugf("Stored block in cache: %d / %v. Utilization: %v%%",
+					blockSummary.Height, blockSummary.Hash, db.APICache.Utilization())
 			}
 		}
 		if err = db.StoreBlockSummary(&blockSummary); err != nil {
@@ -277,6 +282,9 @@ func (db *wiredDB) resyncDBWithPoolValue(quit chan struct{}) error {
 		if db.APICache != nil {
 			if err = db.APICache.StoreBlockSummary(&blockSummary); err != nil {
 				log.Warn("Unable to store block summary in cache:", err)
+			} else if (i-1)%rescanLogBlockChunk == 0 || i == startHeight {
+				log.Debugf("Stored block in cache: %d / %v. Utilization: %v%%",
+					blockSummary.Height, blockSummary.Hash, db.APICache.Utilization())
 			}
 		}
 

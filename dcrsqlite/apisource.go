@@ -51,6 +51,7 @@ func newWiredDB(DB *DB, statusC chan uint32, cl *dcrrpcclient.Client, p *chaincf
 		return wDB, func() error { return nil }
 	}
 
+	log.Info("Generating main chain block map...")
 	if err = wDB.buildMainchainBlockMap(); err != nil {
 		panic(fmt.Sprintf("Unable to build mainchain block map: %v", err))
 	}
@@ -73,6 +74,10 @@ func InitWiredDB(dbInfo *DBInfo, statusC chan uint32, cl *dcrrpcclient.Client, p
 }
 
 func (db *wiredDB) buildMainchainBlockMap() error {
+	if db.APICache == nil {
+		return fmt.Errorf("API cache disabled, unable to build MainchainBlock map")
+	}
+
 	dbHeight := db.dbSummaryHeight
 
 	db.APICache.MainchainBlocks = make([]chainhash.Hash, 0, dbHeight)
@@ -80,7 +85,7 @@ func (db *wiredDB) buildMainchainBlockMap() error {
 	for i := int64(0); i <= dbHeight; i++ {
 		hashStr, err := db.RetrieveBlockHash(i)
 		if err != nil {
-			log.Errorf("Unable to block hash for index %d: %v", i, err)
+			log.Errorf("Unable to get block hash for index %d: %v", i, err)
 			return err
 		}
 
@@ -185,9 +190,13 @@ func (db *wiredDB) GetStakeInfoExtended(idx int) *apitypes.StakeInfoExtended {
 }
 
 func (db *wiredDB) GetSummary(idx int) *apitypes.BlockDataBasic {
-	blockSummary := db.APICache.GetBlockSummary(int64(idx))
-	if blockSummary != nil {
-		return blockSummary
+	var blockSummary *apitypes.BlockDataBasic
+
+	if db.APICache != nil {
+		blockSummary = db.APICache.GetBlockSummary(int64(idx))
+		if blockSummary != nil {
+			return blockSummary
+		}
 	}
 
 	var err error
@@ -197,8 +206,10 @@ func (db *wiredDB) GetSummary(idx int) *apitypes.BlockDataBasic {
 		return nil
 	}
 
-	if err = db.APICache.StoreBlockSummary(blockSummary); err != nil {
-		log.Warnf("Unable to store block summary in APICache: %v", err)
+	if db.APICache != nil {
+		if err = db.APICache.StoreBlockSummary(blockSummary); err != nil {
+			log.Warnf("Unable to store block summary in APICache: %v", err)
+		}
 	}
 
 	return blockSummary

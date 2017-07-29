@@ -14,15 +14,15 @@ import (
 	_ "github.com/mattn/go-sqlite3" // register sqlite driver with database/sql
 )
 
-// BlockSummaryDatabaser is the interface for a block data saving database
-type BlockSummaryDatabaser interface {
+// StakeInfoDatabaser is the interface for an extended stake info saving
+// database
+type StakeInfoDatabaser interface {
 	StoreStakeInfoExtended(bd *apitypes.StakeInfoExtended) error
 	RetrieveStakeInfoExtended(ind int64) (*apitypes.StakeInfoExtended, error)
 }
 
-// StakeInfoDatabaser is the interface for an extended stake info saving
-// database
-type StakeInfoDatabaser interface {
+// BlockSummaryDatabaser is the interface for a block data saving database
+type BlockSummaryDatabaser interface {
 	StoreBlockSummary(bd *apitypes.BlockDataBasic) error
 	RetrieveBlockSummary(ind int64) (*apitypes.BlockDataBasic, error)
 }

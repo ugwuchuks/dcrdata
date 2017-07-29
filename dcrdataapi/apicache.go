@@ -44,6 +44,19 @@ func (apic *APICache) StoreBlockSummary(blockSummary *BlockDataBasic) error {
 		panic("that's not a real hash")
 	}
 
+	if len(apic.MainchainBlocks) < int(height) {
+		return fmt.Errorf("MainchainBlock slice too short (%d) add block at %d",
+			len(apic.MainchainBlocks), height)
+	}
+
+	if len(apic.MainchainBlocks) == int(height) {
+		// append
+		apic.MainchainBlocks = append(apic.MainchainBlocks, *hash)
+	} else /* > */ {
+		// update
+		apic.MainchainBlocks[int(height)] = *hash
+	}
+
 	_, ok := apic.blockCache[*hash]
 	if ok {
 		fmt.Printf("Already have the block summary in cache for block %s at height %d",
@@ -60,21 +73,56 @@ func (apic *APICache) StoreBlockSummary(blockSummary *BlockDataBasic) error {
 	return nil
 }
 
+func (apic *APICache) RemoveCachedBlock(cachedBlock *CachedBlock) {
+	// remove the block from the expiration queue
+	apic.expireQueue.RemoveBlock(cachedBlock)
+	// remove from block cache
+	if hash, err := chainhash.NewHashFromStr(cachedBlock.summary.Hash); err != nil {
+		delete(apic.blockCache, *hash)
+	}
+}
+
 func (apic *APICache) GetBlockSummary(height int64) *BlockDataBasic {
-	if int(height) > len(apic.MainchainBlocks)-1 {
+	cachedBlock := apic.GetCachedBlockByHeight(height)
+	if cachedBlock != nil {
+		return cachedBlock.summary
+	}
+	return nil
+}
+
+func (apic *APICache) GetCachedBlockByHeight(height int64) *CachedBlock {
+	if int(height) > len(apic.MainchainBlocks) || height < 0 {
 		fmt.Printf("block not in MainchainBlocks map!")
 		return nil
 	}
 	hash := apic.MainchainBlocks[height]
+	return apic.GetCachedBlockByHash(hash)
+}
+
+func (apic *APICache) GetCachedBlockByHashStr(hashStr string) *CachedBlock {
+	hash, err := chainhash.NewHashFromStr(hashStr)
+	if err != nil {
+		fmt.Printf("that's not a real hash!")
+		return nil
+	}
+
+	return apic.getCachedBlockByHash(*hash)
+}
+
+func (apic *APICache) GetCachedBlockByHash(hash chainhash.Hash) *CachedBlock {
 	if _, err := chainhash.NewHashFromStr(hash.String()); err != nil {
 		fmt.Printf("that's not a real hash!")
 		return nil
 	}
 
+	return apic.getCachedBlockByHash(hash)
+}
+
+func (apic *APICache) getCachedBlockByHash(hash chainhash.Hash) *CachedBlock {
 	cachedBlock, ok := apic.blockCache[hash]
 	if ok {
 		cachedBlock.Access()
-		return cachedBlock.summary
+		return cachedBlock
 	}
 	return nil
 }
@@ -262,24 +310,46 @@ func (pq *BlockPriorityQueue) Insert(summary *BlockDataBasic) {
 		accessTime: time.Now().UnixNano(),
 	}
 
+	// At capacity
 	if int(pq.capacity) == pq.Len() {
+		// If new block not lower priority than next to pop, replace that in the
+		// queue and fix up the heap.
 		if pq.lessFn(pq.bh[0], cachedBlock) {
 			cachedBlock.heapIdx = 0
 			pq.bh[0] = cachedBlock
 			heap.Fix(pq, 0)
 		}
+		// otherwise this block doesn't qualify
 		return
 	}
 
-	// append at bottom and bubble up
+	// With room to grow, append at bottom and bubble up
 	heap.Push(pq, summary)
 }
 
-func (pq *BlockPriorityQueue) updateBlock(b *CachedBlock, summary *BlockDataBasic) {
-	b.summary = summary
-	pq.updateMinMax(b.summary.Height)
-	heap.Fix(pq, b.heapIdx)
+func (pq *BlockPriorityQueue) UpdateBlock(b *CachedBlock, summary *BlockDataBasic) {
+	if b != nil {
+		b.summary = summary
+		pq.updateMinMax(b.summary.Height)
+		heap.Fix(pq, b.heapIdx)
+	}
+}
 
+func (pq *BlockPriorityQueue) RemoveBlock(b *CachedBlock) {
+	if b != nil && b.heapIdx > 0 && b.heapIdx < pq.Len() {
+		pq.RemoveIndex(b.heapIdx)
+	}
+}
+
+func (pq *BlockPriorityQueue) RemoveIndex(idx int) {
+	heap.Remove(pq, idx)
+	pq.RescanMinMax()
+}
+
+func (pq *BlockPriorityQueue) RescanMinMax() {
+	for i := range pq.bh {
+		pq.updateMinMax(pq.bh[i].summary.Height)
+	}
 }
 
 func (pq *BlockPriorityQueue) updateMinMax(h uint32) {

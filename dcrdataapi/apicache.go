@@ -30,8 +30,11 @@ type APICache struct {
 
 //var _ BlockSummarySaver = (*APICache)(nil)
 
-func (apic APICache) Capacity() uint32   { return apic.capacity }
-func (apic APICache) Utilization() int64 { return int64(len(apic.blockCache)) }
+func (apic APICache) Capacity() uint32         { return apic.capacity }
+func (apic APICache) UtilizationBlocks() int64 { return int64(len(apic.blockCache)) }
+func (apic APICache) Utilization() float64 {
+	return 100.0 * float64(len(apic.blockCache)) / float64(apic.capacity)
+}
 
 func (apic *APICache) StoreBlockSummary(blockSummary *BlockDataBasic) error {
 	apic.Lock()

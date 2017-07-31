@@ -36,7 +36,8 @@ type blockCache map[chainhash.Hash]*CachedBlock
 func WatchPriorityQueue(bpq *BlockPriorityQueue) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	for range ticker.C {
-		if bpq.needsReheap && time.Since(bpq.lastAccess) > 7*time.Second {
+		lastAccessTime := bpq.lastAccessTime()
+		if bpq.doesNeedReheap() && time.Since(lastAccessTime) > 7*time.Second {
 			start := time.Now()
 			bpq.Reheap()
 			fmt.Printf("Triggered REHEAP completed in %v\n", time.Since(start))
@@ -215,8 +216,8 @@ func (apic *APICache) getCachedBlockByHash(hash chainhash.Hash) *CachedBlock {
 	cachedBlock, ok := apic.blockCache[hash]
 	if ok {
 		cachedBlock.Access()
-		apic.expireQueue.needsReheap = true
-		apic.expireQueue.lastAccess = time.Now()
+		apic.expireQueue.setNeedsReheap(true)
+		apic.expireQueue.setAccessTime(time.Now())
 		return cachedBlock
 	}
 	return nil
@@ -369,9 +370,6 @@ func MakeLessByAccessTimeThenCount(millisecondsBinned int64) func(bi, bj *Cached
 
 // Push a *BlockDataBasic. Use heap.Push, not this directly.
 func (pq *BlockPriorityQueue) Push(blockSummary interface{}) {
-	pq.Lock()
-	defer pq.Unlock()
-
 	b := &CachedBlock{
 		summary:    blockSummary.(*BlockDataBasic),
 		accesses:   1,
@@ -386,9 +384,6 @@ func (pq *BlockPriorityQueue) Push(blockSummary interface{}) {
 // Pop will return an interface{} that may be cast to *CachedBlock.  Use
 // heap.Pop, not this.
 func (pq *BlockPriorityQueue) Pop() interface{} {
-	pq.Lock()
-	defer pq.Unlock()
-
 	n := pq.Len()
 	old := pq.bh
 	block := old[n-1]
@@ -418,8 +413,9 @@ func (pq *BlockPriorityQueue) ResetHeap(bh []*CachedBlock) {
 	//pq.bh = bh
 	pq.bh = make([]*CachedBlock, len(bh))
 	copy(pq.bh, bh)
-	pq.Reheap()
+	// Do not call Reheap or setNeedsReheap unless you want a deadlock
 	pq.needsReheap = false
+	heap.Init(pq)
 }
 
 // Reheap is a shortcut for heap.Init(pq)
@@ -494,6 +490,30 @@ func (pq *BlockPriorityQueue) UpdateBlock(b *CachedBlock, summary *BlockDataBasi
 		pq.RescanMinMaxForUpdate(heightAdded, heightRemoved)
 		pq.lastAccess = time.Unix(0, b.accessTime)
 	}
+}
+
+func (bpq *BlockPriorityQueue) lastAccessTime() time.Time {
+	bpq.RLock()
+	defer bpq.RUnlock()
+	return bpq.lastAccess
+}
+
+func (bpq *BlockPriorityQueue) setAccessTime(t time.Time) {
+	bpq.Lock()
+	defer bpq.Unlock()
+	bpq.lastAccess = t
+}
+
+func (bpq *BlockPriorityQueue) doesNeedReheap() bool {
+	bpq.RLock()
+	defer bpq.RUnlock()
+	return bpq.needsReheap
+}
+
+func (bpq *BlockPriorityQueue) setNeedsReheap(needReheap bool) {
+	bpq.Lock()
+	defer bpq.Unlock()
+	bpq.needsReheap = needReheap
 }
 
 // min/max blockheight may be updated as follows, Given:

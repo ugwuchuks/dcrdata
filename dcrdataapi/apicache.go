@@ -72,6 +72,8 @@ func NewAPICache(capacity uint32) *APICache {
 // SetLessFn sets the comparator used by the priority queue. For information on
 // the input function, see the docs for (pq *BlockPriorityQueue).SetLessFn.
 func (apic *APICache) SetLessFn(lessFn func(bi, bj *CachedBlock) bool) {
+	apic.Lock()
+	defer apic.Unlock()
 	apic.expireQueue.SetLessFn(lessFn)
 }
 
@@ -93,6 +95,7 @@ func (apic *APICache) Utilization() float64 {
 func (apic *APICache) StoreBlockSummary(blockSummary *BlockDataBasic) error {
 	apic.Lock()
 	defer apic.Unlock()
+
 	if !apic.isEnabled {
 		fmt.Printf("API cache is disabled")
 		return nil
@@ -145,6 +148,8 @@ func (apic *APICache) StoreBlockSummary(blockSummary *BlockDataBasic) error {
 // RemoveCachedBlock removes the input CachedBlock the cache. If the block is
 // not in cache, this is essentially a silent no-op.
 func (apic *APICache) RemoveCachedBlock(cachedBlock *CachedBlock) {
+	apic.RLock()
+	defer apic.RUnlock()
 	// remove the block from the expiration queue
 	apic.expireQueue.RemoveBlock(cachedBlock)
 	// remove from block cache
@@ -167,7 +172,7 @@ func (apic *APICache) GetBlockSummary(height int64) *BlockDataBasic {
 // The return is nil if no block with that height is cached.
 func (apic *APICache) GetCachedBlockByHeight(height int64) *CachedBlock {
 	if int(height) > len(apic.MainchainBlocks) || height < 0 {
-		fmt.Printf("block not in MainchainBlocks map!")
+		fmt.Printf("block not in MainchainBlocks slice!")
 		return nil
 	}
 	hash := apic.MainchainBlocks[height]
@@ -203,6 +208,10 @@ func (apic *APICache) GetCachedBlockByHash(hash chainhash.Hash) *CachedBlock {
 // not found. Successful retrieval will update the cached block's access time,
 // and increment the block's access count.
 func (apic *APICache) getCachedBlockByHash(hash chainhash.Hash) *CachedBlock {
+
+	apic.RLock()
+	defer apic.RUnlock()
+
 	cachedBlock, ok := apic.blockCache[hash]
 	if ok {
 		cachedBlock.Access()
@@ -254,6 +263,7 @@ type blockHeap []*CachedBlock
 
 // BlockPriorityQueue implements heap.Interface and holds CachedBlocks
 type BlockPriorityQueue struct {
+	sync.RWMutex
 	bh                   blockHeap
 	capacity             uint32
 	minHeight, maxHeight int64
@@ -304,6 +314,8 @@ func (pq BlockPriorityQueue) Swap(i, j int) {
 // *CachedBlock and return a bool, unlike Less, which accepts heap indexes i, j.
 // This allows to define a comparator without requiring a heap.
 func (pq *BlockPriorityQueue) SetLessFn(lessFn func(bi, bj *CachedBlock) bool) {
+	pq.Lock()
+	defer pq.Unlock()
 	pq.lessFn = lessFn
 }
 
@@ -357,6 +369,9 @@ func MakeLessByAccessTimeThenCount(millisecondsBinned int64) func(bi, bj *Cached
 
 // Push a *BlockDataBasic. Use heap.Push, not this directly.
 func (pq *BlockPriorityQueue) Push(blockSummary interface{}) {
+	pq.Lock()
+	defer pq.Unlock()
+
 	b := &CachedBlock{
 		summary:    blockSummary.(*BlockDataBasic),
 		accesses:   1,
@@ -371,6 +386,9 @@ func (pq *BlockPriorityQueue) Push(blockSummary interface{}) {
 // Pop will return an interface{} that may be cast to *CachedBlock.  Use
 // heap.Pop, not this.
 func (pq *BlockPriorityQueue) Pop() interface{} {
+	pq.Lock()
+	defer pq.Unlock()
+
 	n := pq.Len()
 	old := pq.bh
 	block := old[n-1]
@@ -385,6 +403,9 @@ func (pq *BlockPriorityQueue) Pop() interface{} {
 // input slice is modifed, but not reordered. A fresh slice is created for PQ
 // internal use.
 func (pq *BlockPriorityQueue) ResetHeap(bh []*CachedBlock) {
+	pq.Lock()
+	defer pq.Unlock()
+
 	pq.maxHeight = -1
 	pq.minHeight = math.MaxUint32
 	now := time.Now().UnixNano()
@@ -403,6 +424,9 @@ func (pq *BlockPriorityQueue) ResetHeap(bh []*CachedBlock) {
 
 // Reheap is a shortcut for heap.Init(pq)
 func (pq *BlockPriorityQueue) Reheap() {
+	pq.Lock()
+	defer pq.Unlock()
+
 	pq.needsReheap = false
 	heap.Init(pq)
 }
@@ -414,6 +438,9 @@ func (pq *BlockPriorityQueue) Reheap() {
 // else (not at capacity)
 // 		- heap.Push, which is pq.Push (append at bottom) then heapup
 func (pq *BlockPriorityQueue) Insert(summary *BlockDataBasic) (bool, *chainhash.Hash) {
+	pq.Lock()
+	defer pq.Unlock()
+
 	if pq.capacity == 0 {
 		return false, nil
 	}
@@ -455,7 +482,8 @@ func (pq *BlockPriorityQueue) Insert(summary *BlockDataBasic) (bool, *chainhash.
 	return true, nil
 }
 
-// UpdateBlock will update the specified CachedBlock, which must be in the queue
+// UpdateBlock will update the specified CachedBlock, which must be in the
+// queue. This function is NOT thread-safe.
 func (pq *BlockPriorityQueue) UpdateBlock(b *CachedBlock, summary *BlockDataBasic) {
 	if b != nil {
 		heightAdded, heightRemoved := summary.Height, b.summary.Height
@@ -476,14 +504,16 @@ func (pq *BlockPriorityQueue) UpdateBlock(b *CachedBlock, summary *BlockDataBasi
 //   c. block being updated - 2a. then 2b.
 
 // RescanMinMaxForAdd conditionally updates the heap min/max height given the
-// height of the block to add (push).  No scan, just update min/max.
+// height of the block to add (push). No scan, just update min/max. This
+// function is NOT thread-safe.
 func (pq *BlockPriorityQueue) RescanMinMaxForAdd(height uint32) {
 	pq.updateMinMax(height)
 }
 
 // RescanMinMaxForRemove conditionally rescans the heap min/max height given the
 // height of the block to remove (pop). Make sure to remove the block BEFORE
-// running this, as any rescan of the heap will see the block.
+// running this, as any rescan of the heap will see the block. This function is
+// NOT thread-safe.
 func (pq *BlockPriorityQueue) RescanMinMaxForRemove(height uint32) {
 	if int64(height) == pq.minHeight || int64(height) == pq.maxHeight {
 		pq.RescanMinMax()
@@ -491,7 +521,8 @@ func (pq *BlockPriorityQueue) RescanMinMaxForRemove(height uint32) {
 }
 
 // RescanMinMaxForUpdate conditionally rescans the heap min/max height given old
-// and new heights of the CachedBlock being updated.
+// and new heights of the CachedBlock being updated. This function is NOT
+// thread-safe.
 func (pq *BlockPriorityQueue) RescanMinMaxForUpdate(heightAdd, heightRemove uint32) {
 	// If removing a block at either min or max height AND the added block does
 	// not expand the range on the on relevant end, a rescan is necessary.
@@ -506,6 +537,9 @@ func (pq *BlockPriorityQueue) RescanMinMaxForUpdate(heightAdd, heightRemove uint
 // RemoveBlock removes the specified CachedBlock from the queue. Remember to
 // remove it from the actual block cache!
 func (pq *BlockPriorityQueue) RemoveBlock(b *CachedBlock) {
+	pq.Lock()
+	defer pq.Unlock()
+
 	if b != nil && b.heapIdx > 0 && b.heapIdx < pq.Len() {
 		// only remove the block it it is really in the queue
 		if pq.bh[b.heapIdx].summary.Hash == b.summary.Hash {
@@ -518,6 +552,7 @@ func (pq *BlockPriorityQueue) RemoveBlock(b *CachedBlock) {
 }
 
 // RemoveIndex removes the CachedBlock at the specified position in the heap.
+// This function is NOT thread-safe.
 func (pq *BlockPriorityQueue) RemoveIndex(idx int) {
 	removedHeight := pq.bh[idx].summary.Height
 	heap.Remove(pq, idx)
@@ -525,6 +560,7 @@ func (pq *BlockPriorityQueue) RemoveIndex(idx int) {
 }
 
 // RescanMinMax rescans the enitire heap to get the current min/max heights.
+// This function is NOT thread-safe.
 func (pq *BlockPriorityQueue) RescanMinMax() {
 	for i := range pq.bh {
 		pq.updateMinMax(pq.bh[i].summary.Height)
@@ -532,6 +568,7 @@ func (pq *BlockPriorityQueue) RescanMinMax() {
 }
 
 // updateMinMax updates the queue's min/max block height given the input height.
+// This function is NOT thread-safe.
 func (pq *BlockPriorityQueue) updateMinMax(h uint32) (updated bool) {
 	if int64(h) > pq.maxHeight {
 		pq.maxHeight = int64(h)

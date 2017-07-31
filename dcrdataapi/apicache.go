@@ -31,6 +31,19 @@ type CachedBlock struct {
 
 type blockCache map[chainhash.Hash]*CachedBlock
 
+// WatchPriorityQueue is a hack since the priority of a CachedBlock is modified
+// (if access or access time is in the LessFn) without triggering a reheap.
+func WatchPriorityQueue(bpq *BlockPriorityQueue) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	for range ticker.C {
+		if bpq.needsReheap && time.Since(bpq.lastAccess) > 7*time.Second {
+			start := time.Now()
+			bpq.Reheap()
+			fmt.Printf("Triggered REHEAP completed in %v\n", time.Since(start))
+		}
+	}
+}
+
 // APICache maintains a fixed-capacity cache of CachedBlocks. Use NewAPICache to
 // create the cache with the desired capacity.
 type APICache struct {
@@ -44,12 +57,16 @@ type APICache struct {
 
 // NewAPICache creates an APICache with the specified capacity.
 func NewAPICache(capacity uint32) *APICache {
-	return &APICache{
+	apic := &APICache{
 		isEnabled:   true,
 		capacity:    capacity,
 		blockCache:  make(blockCache),
 		expireQueue: NewBlockPriorityQueue(capacity),
 	}
+
+	go WatchPriorityQueue(apic.expireQueue)
+
+	return apic
 }
 
 // SetLessFn sets the comparator used by the priority queue. For information on
@@ -189,6 +206,8 @@ func (apic *APICache) getCachedBlockByHash(hash chainhash.Hash) *CachedBlock {
 	cachedBlock, ok := apic.blockCache[hash]
 	if ok {
 		cachedBlock.Access()
+		apic.expireQueue.needsReheap = true
+		apic.expireQueue.lastAccess = time.Now()
 		return cachedBlock
 	}
 	return nil
@@ -239,6 +258,8 @@ type BlockPriorityQueue struct {
 	capacity             uint32
 	minHeight, maxHeight int64
 	lessFn               func(bi, bj *CachedBlock) bool
+	needsReheap          bool
+	lastAccess           time.Time
 }
 
 // NewBlockPriorityQueue is the constructor for BlockPriorityQueue that
@@ -248,10 +269,11 @@ type BlockPriorityQueue struct {
 // by access count. Use BlockPriorityQueue.SetLessFn to redefine the comparator.
 func NewBlockPriorityQueue(capacity uint32) *BlockPriorityQueue {
 	pq := &BlockPriorityQueue{
-		bh:        blockHeap{},
-		capacity:  capacity,
-		minHeight: math.MaxUint32,
-		maxHeight: -1,
+		bh:         blockHeap{},
+		capacity:   capacity,
+		minHeight:  math.MaxUint32,
+		maxHeight:  -1,
+		lastAccess: time.Unix(0, 0),
 	}
 	pq.SetLessFn(MakeLessByAccessTimeThenCount(1))
 	return pq
@@ -343,6 +365,7 @@ func (pq *BlockPriorityQueue) Push(blockSummary interface{}) {
 	}
 	pq.updateMinMax(b.summary.Height)
 	pq.bh = append(pq.bh, b)
+	pq.lastAccess = time.Unix(0, b.accessTime)
 }
 
 // Pop will return an interface{} that may be cast to *CachedBlock.  Use
@@ -375,10 +398,12 @@ func (pq *BlockPriorityQueue) ResetHeap(bh []*CachedBlock) {
 	pq.bh = make([]*CachedBlock, len(bh))
 	copy(pq.bh, bh)
 	pq.Reheap()
+	pq.needsReheap = false
 }
 
 // Reheap is a shortcut for heap.Init(pq)
 func (pq *BlockPriorityQueue) Reheap() {
+	pq.needsReheap = false
 	heap.Init(pq)
 }
 
@@ -414,6 +439,9 @@ func (pq *BlockPriorityQueue) Insert(summary *BlockDataBasic) (bool, *chainhash.
 			removedBlockHashStr := pq.bh[0].summary.Hash
 			removedBlockHash, _ := chainhash.NewHashFromStr(removedBlockHashStr)
 			pq.UpdateBlock(pq.bh[0], summary)
+			if removedBlockHash != nil {
+				pq.lastAccess = time.Now()
+			}
 			return true, removedBlockHash
 		}
 		// otherwise this block is too low priority to add to queue
@@ -423,6 +451,7 @@ func (pq *BlockPriorityQueue) Insert(summary *BlockDataBasic) (bool, *chainhash.
 	// With room to grow, append at bottom and bubble up
 	heap.Push(pq, summary)
 	pq.RescanMinMaxForAdd(summary.Height) // no rescan, just set min/max
+	pq.lastAccess = time.Now()
 	return true, nil
 }
 
@@ -435,6 +464,7 @@ func (pq *BlockPriorityQueue) UpdateBlock(b *CachedBlock, summary *BlockDataBasi
 		b.Access()
 		heap.Fix(pq, b.heapIdx)
 		pq.RescanMinMaxForUpdate(heightAdded, heightRemoved)
+		pq.lastAccess = time.Unix(0, b.accessTime)
 	}
 }
 

@@ -63,27 +63,33 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/decred/base58"
+  packages = ["."]
+  revision = "b3520e187fa8ebe65eb74245408cf4b83e6a65d3"
+
+[[projects]]
+  branch = "master"
   name = "github.com/decred/dcrd"
   packages = ["blockchain","blockchain/internal/dbnamespace","blockchain/internal/progresslog","blockchain/stake","blockchain/stake/internal/dbnamespace","blockchain/stake/internal/ticketdb","blockchain/stake/internal/tickettreap","chaincfg","chaincfg/chainec","chaincfg/chainhash","database","database/ffldb","database/internal/treap","dcrec/edwards","dcrec/secp256k1","dcrec/secp256k1/schnorr","dcrjson","txscript","wire"]
-  revision = "1eef90fb732d0b7eaa87757fc0123af99836abd2"
+  revision = "20ae0c1d6d08e583022d1a3ba166627f5075573f"
 
 [[projects]]
   branch = "master"
   name = "github.com/decred/dcrrpcclient"
   packages = ["."]
-  revision = "efe7aaf4a0f0616b75e3f3ad8fa494572ff96760"
+  revision = "56d3c92e1a95fe90c48019c31087a8475957a5ad"
 
 [[projects]]
   branch = "master"
   name = "github.com/decred/dcrutil"
-  packages = [".","base58","hdkeychain"]
-  revision = "ddbde93f65ab0692e54ed8a5ad325fa2e8af4daa"
+  packages = [".","hdkeychain"]
+  revision = "ad851fbca8d46415507644ed1d6ce7746d155c6f"
 
 [[projects]]
   branch = "master"
   name = "github.com/decred/dcrwallet"
-  packages = ["apperrors","internal/zero","netparams","snacl","wallet/udb","walletdb"]
-  revision = "d4f4a9abffb96821f5066b72333b7710b3942edd"
+  packages = ["apperrors","internal/zero","netparams","snacl","wallet/udb","walletdb","wif"]
+  revision = "b658d314b6cf54fb05b286d3795c2ab360e0f8c4"
 
 [[projects]]
   branch = "master"
@@ -94,8 +100,8 @@
 [[projects]]
   name = "github.com/go-chi/chi"
   packages = [".","middleware"]
-  revision = "04ec7fc4179604b2390947258f9143eaae23b596"
-  version = "v3.2.1"
+  revision = "f7c66f685bcab06bcce78ac212c5f3553c063d19"
+  version = "v3.3.0"
 
 [[projects]]
   name = "github.com/go-chi/docgen"
@@ -159,7 +165,7 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "314a259e304ff91bd6985da2a7149bbf91237993"
+  revision = "ebfc5b4631820b793c9010c87fd8fef0f39eb082"
 
 [solve-meta]
   analyzer-name = "dep"

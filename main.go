@@ -182,6 +182,12 @@ func mainCore() int {
 	blockDataSavers = append(blockDataSavers, webUI)
 	mempoolSavers = append(mempoolSavers, webUI)
 
+	// Start the explorer system
+	explore := explorer.New(&sqliteDB, cfg.UseRealIP)
+	explore.UseSIGToReloadTemplates()
+	defer explore.StopWebsocketHub()
+	blockDataSavers = append(blockDataSavers, explore)
+
 	// Initial data summary for web ui
 	blockData, err := collector.Collect()
 	if err != nil {
@@ -202,7 +208,7 @@ func mainCore() int {
 	addrMap := make(map[string]txhelpers.TxAction) // for support of watched addresses
 	// On reorg, only update web UI since dcrsqlite's own reorg handler will
 	// deal with patching up the block info database.
-	reorgBlockDataSavers := []blockdata.BlockDataSaver{webUI}
+	reorgBlockDataSavers := []blockdata.BlockDataSaver{webUI, explore}
 	wsChainMonitor := blockdata.NewChainMonitor(collector, blockDataSavers,
 		reorgBlockDataSavers, quit, &wg, addrMap,
 		ntfnChans.connectChan, ntfnChans.recvTxBlockChan,
@@ -301,10 +307,6 @@ func mainCore() int {
 	ntfnChans.updateStatusDBHeight <- uint32(sqliteDB.GetHeight())
 
 	apiMux := newAPIRouter(app, cfg.UseRealIP)
-
-	// Start the explorer system
-	explore := explorer.New(&sqliteDB, cfg.UseRealIP)
-	explore.UseSIGToReloadTemplates()
 
 	webMux := chi.NewRouter()
 	webMux.Get("/", webUI.RootPage)

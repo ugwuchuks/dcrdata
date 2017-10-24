@@ -11,14 +11,14 @@ import (
 
 // BlockBasic models data for the explorer's explorer page
 type BlockBasic struct {
-	Height         int64
-	Size           int32
-	Voters         uint16
-	Transactions   int
-	FreshStake     uint8
-	Revocations    uint32
-	BlockTime      int64
-	FormattedTime  string
+	Height         int64  `json:"height"`
+	Size           int32  `json:"size"`
+	Voters         uint16 `json:"votes"`
+	Transactions   int    `json:"tx"`
+	FreshStake     uint8  `json:"tickets"`
+	Revocations    uint32 `json:"revocations"`
+	BlockTime      int64  `json:"time"`
+	FormattedTime  string `json:"formatted_time"`
 	FormattedBytes string
 }
 

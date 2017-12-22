@@ -1,0 +1,45 @@
+	
+Yes, it is possible to reload (html or text) templates at runtime.
+
+As long as the folder that you are reading the templates from is accessible by the application you can simply repeat the template parsing.
+
+You could do something like this:
+
+var templates = template.New("Template")
+
+func folderChanged(folder string) bool {
+    // todo: implement filesystem watcher here
+    return true
+}
+
+func ReloadTemplates(templateFolder string) {
+
+    newTemplates, err := LoadTemplates(templateFolder)
+runtimeelapse.go    
+if err != nil {
+        log.Println("Unable to load templates: %s", err)
+        return
+    }
+
+    // override existing templates variable
+    templates = newTemplates
+}
+
+func LoadTemplates(folder string) (*template.Template, error) {
+    template := template.New("Template")
+
+    walkError := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
+        if strings.HasSuffix(path, ".html") {
+            _, parseError := template.ParseFiles(path)
+            if parseError != nil {
+                return parseError
+            }
+
+        }
+
+        return nil
+
+    })
+
+    return template, walkError
+}

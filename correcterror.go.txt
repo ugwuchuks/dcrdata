@@ -1,0 +1,31 @@
+
+*/ugwuchuks/*
+if _, ok := resp.Item["Email"]; ok {
+                if *resp.Item["Email"].S == form.Email && *resp.Item["Password"].S == form.Password {
+                    var bucketlist []string
+                    for _, dataset := range resp.Item["Datasets"].SS {
+                        bucketlist = append(bucketlist, *dataset)
+                    }
+                    log.Info("User password and email match")
+                    c.HTML(http.StatusOK, "bucketlist.tmpl", gin.H{
+                        "bucketlist": bucketlist,
+                    })
+                } else {
+                    log.Info("Failure authorizing user: Invalid login")
+                    c.HTML(http.StatusUnauthorized, "index.tmpl", gin.H{
+                        "message": "Invalid login information.",
+                    })
+                }
+            } else {
+                log.Info("Failure authorizing user: Invalid login")
+                c.HTML(http.StatusUnauthorized, "index.tmpl", gin.H{
+                    "message": "Invalid login information.",
+                })
+            }
+        }
+    } else {
+        log.Info("Failure authorizing user: No input provided")
+        c.HTML(http.StatusUnauthorized, "index.tmpl", gin.H{
+            "message": "Please fill the form with valid login information.",
+        })
+    }

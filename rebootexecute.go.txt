@@ -1,0 +1,46 @@
+43f5ef07d5c0ea758ddfd7c3a793a49d66a5f85a
+
+executable for rebooting that would refresh page from error
+
+var executor TemplateExecutor
+
+func main() {
+    if debug {
+        executor = DebugTemplateExecutor{templateGlob}
+
+    } else {
+        executor = ReleaseTemplateExecutor{
+            template.Must(template.ParseGlob(templateGlob)),
+        }
+    }
+
+    http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+        executor.ExecuteTemplate(w, "test.html", nil)
+    })
+
+    http.ListenAndServe(":3000", nil)
+}
+
+
+executable refresh 
+
+type TemplateExecutor interface{
+    ExecuteTemplate(wr io.Writer, name string, data interface{}) error
+}
+
+type DebugTemplateExecutor struct  {
+    Glob string
+}
+
+func (e DebugTemplateExecutor) ExecuteTemplate(wr io.Writer, name string, data interface{}) error {
+    t := template.Must(template.ParseGlob(e.Glob))
+    return t.ExecuteTemplate(wr, name, data)
+}
+
+type ReleaseTemplateExecutor struct  {
+    Template *template.Template
+}
+
+func (e ReleaseTemplateExecutor) ExecuteTemplate(wr io.Writer, name string, data interface{}) error {
+    return e.Template.ExecuteTemplate(wr, name, data)
+}
